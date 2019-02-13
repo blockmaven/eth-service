@@ -1,0 +1,12 @@
+{
+  "name": "vodix-eth-module",
+  "version": "1.0.0",
+  "description": "VodiX NodeJS Ethereum Module",
+  "main": "server.js",
+  "repository": {
+    "type": "git",
+    "url": "git@gitlab.com:deqode/vodix/eth-service.git"
+  },
+  "author": "Deqode",
+  "license": "ISC"
+}
