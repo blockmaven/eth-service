@@ -148,12 +148,48 @@ contract Escrow is Governable {
     event VodeerPaid(uint256 _nonce, address _vodeer, uint256 _tokens);
     event TokensRefunded(uint256 _nonce, address _vodiant, uint256 _vodiantTokens, address _vodeer, uint256 _vodeerTokens);
 
+    modifier checkStatus(uint256 _nonce, JobState state) {
+        require(jobDetails[_nonce].status == state, "Job is at a different stage");
+        _;
+    }
+
+    modifier isArbiter(uint256 _nonce) {
+        require(jobDetails[_nonce].arbiter == msg.sender, "Not the arbiter for this job");
+        _;
+    }
+
+    modifier isValidAddress(address _who) {
+        require(_who != address(0), "Invalid address");
+        _;
+    }
+
+    modifier isVodeer(uint256 _nonce) {
+        require(jobDetails[_nonce].vodeer == msg.sender, "Not your job");
+        _;
+    }
+
+    modifier isVodiant(uint256 _nonce) {
+        require(jobDetails[_nonce].vodiant == msg.sender, "Not your job");
+        _;
+    }
+
+    modifier isVodiantSatisfied(uint256 _nonce, bool _required) {
+        string memory message;
+        if (_required) {
+            message = "Vodiant satisfied";
+        } else {
+            message = "Request already submitted";
+        }
+
+        require(jobDetails[_nonce].vodiantDissatisfied == _required, message);
+        _;
+    }
+
     constructor(address _token) public {
         setToken(_token);
     }
 
-    function setToken(address _token) public {
-        require(_token != address(0), "Invalid address");
+    function setToken(address _token) public isValidAddress(_token) {
         token = _token;
         emit TokenSet(_token);
     }
@@ -172,70 +208,92 @@ contract Escrow is Governable {
         require(ERC20(token).transferFrom(msg.sender, address(this), _tokens), "Token transfer failed");
     }
 
-    function applyForJob(uint256 _nonce, uint256 _tokens) public {
+    function applyForJob(
+        uint256 _nonce, 
+        uint256 _tokens
+    ) 
+        public 
+        checkStatus(_nonce, JobState.Created) 
+    {
         Job storage job = jobDetails[_nonce];
-        require(job.status == JobState.Created, "Job not available");
         
         job.vodeer = msg.sender;
         job.vodeerTokensStaked = _tokens;
         job.status = JobState.Assigned;
 
         require(ERC20(token).transferFrom(msg.sender, address(this), _tokens), "Token transfer failed");
+        
         emit JobAssigned(_nonce, job.vodiant, job.vodiantTokensStaked, msg.sender, _tokens);
     }
 
-    function submitWork(uint256 _nonce) public {
-        require(jobDetails[_nonce].vodeer == msg.sender, "Not your job");
-        require(jobDetails[_nonce].status == JobState.Assigned, "Job already submitted");
-
+    function submitWork(uint256 _nonce) 
+        public
+        isVodeer(_nonce)
+        checkStatus(_nonce, JobState.Assigned) 
+    {
         jobDetails[_nonce].status = JobState.Completed;
+        
         emit WorkSubmitted(_nonce, msg.sender);
     }
 
-    function dissatisfactoryWorkSubmitted(uint256 _nonce) public {
-        require(jobDetails[_nonce].vodiant == msg.sender, "Not your job");
-        require(jobDetails[_nonce].status == JobState.Completed, "Job is at a different stage");
-        require(!jobDetails[_nonce].vodiantDissatisfied, "Request already submitted");
-
+    function dissatisfactoryWorkSubmitted(uint256 _nonce) 
+        public 
+        checkStatus(_nonce, JobState.Completed) 
+        isVodiant(_nonce)
+        isVodiantSatisfied(_nonce, false)
+    {
         jobDetails[_nonce].vodiantDissatisfied = true;
+        
         emit VodiantDissatisfied(_nonce, msg.sender);
     }
 
-    function raiseDispute(uint256 _nonce) public {
-        require(jobDetails[_nonce].vodeer == msg.sender, "Not your job");
-        require(jobDetails[_nonce].status == JobState.Completed, "Job is at a different stage");
-        require(jobDetails[_nonce].vodiantDissatisfied, "Vodiant satisfied");
-
+    function raiseDispute(uint256 _nonce) 
+        public 
+        isVodeer(_nonce)
+        checkStatus(_nonce, JobState.Completed) 
+        isVodiantSatisfied(_nonce, true)
+    {
         jobDetails[_nonce].status = JobState.Arbitration;
+        
         emit DisputeRaised(_nonce, msg.sender);
     }
 
-    function assignArbiter(uint256 _nonce, address _arbiter) public onlyAdmins {
-        require(jobDetails[_nonce].status == JobState.Arbitration, "Job is at a different stage");
+    function assignArbiter(
+        uint256 _nonce, 
+        address _arbiter
+    ) 
+        public 
+        onlyAdmins 
+        isValidAddress(_arbiter) 
+        checkStatus(_nonce, JobState.Arbitration) 
+    {
         require(jobDetails[_nonce].arbiter == address(0), "Arbiter already assigned");
-        require(_arbiter != address(0), "Invalid address");
-
+        
         jobDetails[_nonce].arbiter = _arbiter;
+        
         emit ArbiterAssigned(_nonce, _arbiter);
     }
 
-    function positiveVerdict(uint256 _nonce) public {
-        require(jobDetails[_nonce].status == JobState.Arbitration, "Job is at a different stage");
-        require(jobDetails[_nonce].arbiter == msg.sender, "Not the arbiter for this job");
-
+    function positiveVerdict(uint256 _nonce) 
+        public 
+        isArbiter(_nonce) 
+        checkStatus(_nonce, JobState.Arbitration) 
+    {
         jobDetails[_nonce].status == JobState.Paid; 
         
         address vodeer = jobDetails[_nonce].vodeer;
         uint256 tokens = jobDetails[_nonce].vodeerTokensStaked.add(jobDetails[_nonce].vodiantTokensStaked);
         
         require(ERC20(token).transfer(vodeer, tokens), "Insufficient funds in contract");
+       
         emit VodeerPaid(_nonce, vodeer, tokens);
     }
 
-    function negativeVerdict(uint256 _nonce) public {
-        require(jobDetails[_nonce].status == JobState.Arbitration, "Job is at a different stage");
-        require(jobDetails[_nonce].arbiter == msg.sender, "Not the arbiter for this job");
-
+    function negativeVerdict(uint256 _nonce) 
+        public 
+        isArbiter(_nonce) 
+        checkStatus(_nonce, JobState.Arbitration) 
+    {
         jobDetails[_nonce].status == JobState.Unacceptable;
 
         address vodeer = jobDetails[_nonce].vodeer;
@@ -245,6 +303,7 @@ contract Escrow is Governable {
 
         require(ERC20(token).transfer(vodeer, vodeerTokens), "Insufficient funds in contract");
         require(ERC20(token).transfer(vodiant, vodiantTokens), "Insufficient funds in contract");
+        
         emit TokensRefunded(_nonce, vodiant, vodiantTokens, vodeer, vodeerTokens);
     }
 }
