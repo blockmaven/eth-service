@@ -134,8 +134,8 @@ contract Escrow is Governable {
         JobState status;
     }
 
-    uint256 nonce;
-    address token;
+    uint256 public nonce;
+    address public token;
     mapping ( uint256 => Job ) public jobDetails;
 
     event TokenSet(address _token);
