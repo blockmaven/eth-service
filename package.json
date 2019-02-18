@@ -8,5 +8,9 @@
     "url": "git@gitlab.com:deqode/vodix/eth-service.git"
   },
   "author": "Deqode",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "config": "^3.0.1",
+    "winston": "^3.2.1"
+  }
 }
