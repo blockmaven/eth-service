@@ -1,4 +1,5 @@
 {
  "app": "Vodix NodeJS Ethereum Module",
- "loglevel": "debug"
+ "loglevel": "debug",
+ "port": 3000
 }
